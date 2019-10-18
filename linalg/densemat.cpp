@@ -4042,7 +4042,6 @@ int LUFactors::Factor(int m)
 
       if ( abs(data[i+i*m]-0.0) <= 1.e-9 )
       {
-        mfem_warning( "LUFactors::Factor: division by zero!" );
         return LU_FAILED;
       }
 
