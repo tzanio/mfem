@@ -21,7 +21,11 @@
 #include "mfem.hpp"
 #include <fstream>
 #include <iostream>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   
+
+#ifdef _WIN32
+#define jn(n,x) _jn(n,x)
+#endif       
+
 using namespace std;
 using namespace mfem;
 
@@ -53,6 +57,7 @@ enum prob_type
 {
    scatter,
    waveguide,
+   cyl_waveguide
 };
 prob_type prob = scatter;
 
@@ -104,8 +109,9 @@ int main(int argc, char *argv[])
    //    and volume meshes with the same code.
 
    Mesh *mesh;
-   prob = scatter;
+   // prob = scatter;
    // prob = waveguide;
+   prob = cyl_waveguide;
 
    if (prob == scatter)
    {
@@ -114,12 +120,20 @@ int main(int argc, char *argv[])
       // mesh_file ="../data/square-disc.mesh";
       mesh = new Mesh(mesh_file,1,1);
    }
-   if (prob == waveguide)
+   else if (prob == waveguide)
    {
       // mesh = new Mesh(8, 1, 1, Element::HEXAHEDRON, true, 8, 1, 1, false);
       // mesh_file= "../data/beam-hex.mesh";
-      // mesh = new Mesh(mesh_file,1,1);
       mesh = new Mesh(8, 1, 1, Element::HEXAHEDRON, true, 8, 1, 1, false);
+   }
+   else if (prob == cyl_waveguide)
+   {
+      // mesh = new Mesh(8, 1, 1, Element::HEXAHEDRON, true, 8, 1, 1, false);
+      // mesh_file= "../data/beam-hex.mesh";
+      // mesh_file= "cylinder_h20.mesh";
+      // mesh_file= "pipe_p2.mesh";
+      mesh_file= "hollow_cyl.mesh";
+      mesh = new Mesh(mesh_file,1,1);
    }
    
    dim = mesh->Dimension();
@@ -155,7 +169,6 @@ int main(int argc, char *argv[])
 
    Array<int> elems_pml;
    compute_pml_elem_list(pmesh, elems_pml);
-   // pmesh->ReorientTetMesh();
 
    // 6. Define a parallel finite element space on the parallel mesh. Here we
    //    use the Nedelec finite elements of the specified order.
@@ -345,29 +358,25 @@ int main(int argc, char *argv[])
       sol_sock_im.precision(8);
       sol_sock_im << "solution\n" << *pmesh << x.imag() << keys <<"window_title 'Solution imag part'" << flush;
    
-      MPI_Barrier(MPI_COMM_WORLD);
-      ParGridFunction u_err_re(fespace);
-      subtract(x.real(),x_gf.real(), u_err_re);
-      // u_err_re -= x_gf;
-      socketstream sol_sock_err_re(vishost, visport);
-      sol_sock_err_re << "parallel " << num_procs << " " << myid << "\n";
-      sol_sock_err_re.precision(8);
-      sol_sock_err_re << "solution\n" << *pmesh << u_err_re << keys <<"window_title 'Error real part'" << flush;
+      // MPI_Barrier(MPI_COMM_WORLD);
+      // ParGridFunction u_err_re(fespace);
+      // subtract(x.real(),x_gf.real(), u_err_re);
+      // // u_err_re -= x_gf;
+      // socketstream sol_sock_err_re(vishost, visport);
+      // sol_sock_err_re << "parallel " << num_procs << " " << myid << "\n";
+      // sol_sock_err_re.precision(8);
+      // sol_sock_err_re << "solution\n" << *pmesh << u_err_re << keys <<"window_title 'Error real part'" << flush;
+
+      // MPI_Barrier(MPI_COMM_WORLD);
+      // ParGridFunction u_err_im(fespace);
+      // subtract(x.imag(),x_gf.imag(), u_err_im);
+      // // u_err_im -= x_gf;
+      // socketstream sol_sock_err_im(vishost, visport);
+      // sol_sock_err_im << "parallel " << num_procs << " " << myid << "\n";
+      // sol_sock_err_im.precision(8);
+      // sol_sock_err_im << "solution\n" << *pmesh << u_err_im << keys <<"window_title 'Error real part'" << flush;
 
       MPI_Barrier(MPI_COMM_WORLD);
-      ParGridFunction u_err_im(fespace);
-      subtract(x.imag(),x_gf.imag(), u_err_im);
-      // u_err_im -= x_gf;
-      socketstream sol_sock_err_im(vishost, visport);
-      sol_sock_err_im << "parallel " << num_procs << " " << myid << "\n";
-      sol_sock_err_im.precision(8);
-      sol_sock_err_im << "solution\n" << *pmesh << u_err_im << keys <<"window_title 'Error real part'" << flush;
-
-
-
-      MPI_Barrier(MPI_COMM_WORLD);
-   
-   
       ParGridFunction x_t(fespace);
       x_t = x.real();
       keys = "keys rRljcUUuu\n";
@@ -381,7 +390,7 @@ int main(int argc, char *argv[])
       if (myid == 0)
          cout << "GLVis visualization paused."
               << " Press space (in the GLVis window) to resume it.\n";
-      int num_frames = 64;
+      int num_frames = 16;
       int i = 0;
       while (sol_sock)
       {
@@ -474,6 +483,25 @@ void compute_pml_mesh_data(Mesh * mesh)
       pml_lngth(0,1) = 0.125 * (domain_bdr(0,1) - domain_bdr(0,0));
       comp_domain_bdr(0,1) = domain_bdr(0,1) - pml_lngth(0,1);
    }
+   else if (prob == cyl_waveguide)
+   {
+      for (int i=0; i<dim; i++)
+      {
+         comp_domain_bdr(i,0) = domain_bdr(i,0);
+         comp_domain_bdr(i,1) = domain_bdr(i,1);
+      }   
+      // pml only in the z direction
+      pml_lngth(2,1) = 0.125 * (domain_bdr(2,1) - domain_bdr(2,0));
+      comp_domain_bdr(2,1) = domain_bdr(2,1) - pml_lngth(2,1);
+
+      // pml only in the x direction
+      // pml_lngth(0,1) = 0.125 * (domain_bdr(0,1) - domain_bdr(0,0));
+      // pml_lngth(0,1) = 1.0;
+      // comp_domain_bdr(0,1) = domain_bdr(0,1) - pml_lngth(0,1);
+   }
+
+   // comp_domain_bdr.Print();
+   // domain_bdr.Print();
 }
 
 
@@ -525,8 +553,6 @@ void compute_pml_elem_list(ParMesh * pmesh, Array<int> & elem_pml)
    }
 }
 
-
-
 void maxwell_ess_data(const Vector &x, std::vector<std::complex<double>> &E)
 {
    // Initialize
@@ -547,6 +573,20 @@ void maxwell_ess_data(const Vector &x, std::vector<std::complex<double>> &E)
       Ho = omega / (2.0 * M_PI);
       E[1] /= Ho;
    }
+   else if (prob == cyl_waveguide) 
+   {
+      // double r = sqrt(x(0)*x(0) + x(1)*x(1));
+      // double th = atan(x(1)/x(0));
+      // double omega_11 = 1.8412;
+      // complex<double> E_r  =  omega / (r * omega_11 * omega_11) * j1(omega_11 * r) * exp(zi * th);
+      // double dj1 = omega_11 * (j0(omega_11 * r) - 1/(omega_11 * r) * j1(omega_11* r)); 
+      // complex<double> E_th = zi * omega / omega_11 * dj1 * exp(zi * th);
+      // E[0] = cos(th) * E_r - sin(th) * E_th;
+      // E[1] = sin(th) * E_r + cos(th) * E_th;
+      // E[1] = exp(zi * omega * x(2));
+      // E[0] = 1;
+      E[1] = 1.0;
+   }
    else if(prob == scatter) // point source (scattering)
    {
       Vector shift(dim);
@@ -564,11 +604,13 @@ void maxwell_ess_data(const Vector &x, std::vector<std::complex<double>> &E)
          // Ho = Jo(r) + i Yo(r)
          // Ho_r  = - H_1 = - (J1(r) + i Y1(r))
          // Ho_rr = - (i/r *(J1(r) + i Y1(r)) - (J2(r) + i y2(r)))
-         // GNU special functions (Bessel functions)
-         complex<double> Ho = j0(beta) + zi * y0(beta);
-         complex<double> Ho_r = - omega * (j1(beta) + zi * y1(beta)); 
-         complex<double> Ho_rr = -omega * omega * (1.0/beta * (j1(beta) + zi*y1(beta))
+         // Special functions (Bessel functions)
+         complex<double> Ho = jn(0,beta) + zi * yn(0,beta);
+         complex<double> Ho_r = - omega * (jn(1,beta) + zi * yn(1,beta)); 
+         complex<double> Ho_rr = -omega * omega * (1.0/beta * (jn(1,beta) + zi*yn(1,beta))
                                  - (jn(2,beta) + zi * yn(2,beta)));
+
+         
 
          // derivative with respect to x
          double r_x = x0 / r; 
@@ -652,6 +694,15 @@ void E_bdr_data_Re(const Vector &x, Vector &E)
       for (int i = 0; i < dim; ++i) E[i] = Eval[i].real();
       if (abs(x(0)-domain_bdr(0,1)) < 1e-13 ) E = 0.0;
    }
+   else if (prob == cyl_waveguide)
+   { // waveguide problem
+      std::vector<std::complex<double>> Eval(E.Size());
+      if (abs(x(2)) < 1e-12) 
+      {
+         maxwell_ess_data(x, Eval);
+         for (int i = 0; i < dim; ++i) E[i] = Eval[i].real();
+      }
+   }
 }
 
 //define bdr_data solution
@@ -682,6 +733,15 @@ void E_bdr_data_Im(const Vector &x, Vector &E)
       maxwell_ess_data(x, Eval);
       for (int i = 0; i < dim; ++i) E[i] = Eval[i].imag();
       if (abs(x(0)-domain_bdr(0,1)) < 1e-13 ) E = 0.0;
+   }
+   else if (prob == cyl_waveguide)
+   { // waveguide problem
+      std::vector<std::complex<double>> Eval(E.Size());
+      if (abs(x(2)) < 1e-12) 
+      {
+         maxwell_ess_data(x, Eval);
+         for (int i = 0; i < dim; ++i) E[i] = Eval[i].imag();
+      }
    }
 }
 
