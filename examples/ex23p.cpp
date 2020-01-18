@@ -23,8 +23,8 @@
 #include <iostream>
 
 #ifdef _WIN32
-#define jn(n,x) _jn(n,x)
-#endif       
+#define jn(n, x) _jn(n, x)
+#endif
 
 using namespace std;
 using namespace mfem;
@@ -34,18 +34,20 @@ using namespace mfem;
 #endif
 
 // Exact solution, E, and r.h.s., f. See below for implementation.
-void compute_pml_mesh_data(Mesh * mesh);
+void compute_pml_mesh_data(Mesh *mesh);
 void maxwell_ess_data(const Vector &x, std::vector<std::complex<double>> &Eval);
 void E_bdr_data_Re(const Vector &x, Vector &E);
 void E_bdr_data_Im(const Vector &x, Vector &E);
+
+void source_im(const Vector &x, Vector &f_im);
+
 double pml_detJ_inv_Re(const Vector &x);
 double pml_detJ_inv_Im(const Vector &x);
 void pml_detJ_JT_J_inv_Re(const Vector &x, DenseMatrix &M);
 void pml_detJ_JT_J_inv_Im(const Vector &x, DenseMatrix &M);
 void pml_detJ_inv_JT_J_Re(const Vector &x, DenseMatrix &M);
 void pml_detJ_inv_JT_J_Im(const Vector &x, DenseMatrix &M);
-void compute_pml_elem_list(ParMesh * pmesh, Array<int> & elem_pml);
-
+void compute_pml_elem_list(ParMesh *pmesh, Array<int> &elem_pml);
 
 double omega;
 int dim;
@@ -53,8 +55,9 @@ Array2D<double> domain_bdr;
 Array2D<double> pml_lngth;
 Array2D<double> comp_domain_bdr;
 
-enum prob_type 
+enum prob_type
 {
+   load_src,
    scatter,
    waveguide,
    cyl_waveguide
@@ -83,8 +86,10 @@ int main(int argc, char *argv[])
                   "Finite element order (polynomial degree).");
    args.AddOption(&freq, "-f", "--frequency", "Set the frequency for the exact"
                                               " solution.");
-   args.AddOption(&ref_levels, "-rs", "--refinements-serial", "Number of serial refinements");                                           
-   args.AddOption(&par_ref_levels, "-rp", "--refinements-parallel", "Number of parallel refinements");                                           
+   args.AddOption(&ref_levels, "-rs", "--refinements-serial",
+                  "Number of serial refinements");
+   args.AddOption(&par_ref_levels, "-rp", "--refinements-parallel",
+                  "Number of parallel refinements");
    args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
                   "--no-visualization",
                   "Enable or disable GLVis visualization.");
@@ -109,33 +114,35 @@ int main(int argc, char *argv[])
    //    and volume meshes with the same code.
 
    Mesh *mesh;
-   // prob = scatter;
+    prob = scatter;
    // prob = waveguide;
-   prob = cyl_waveguide;
+   // prob = cyl_waveguide;
+    prob = load_src;
 
+   if (prob == load_src)
+   {
+      mesh = new Mesh(mesh_file, 1, 1);
+   }
    if (prob == scatter)
    {
       mesh_file = "../data/square_w_hole.mesh";
       // mesh_file = "meshes/hexa728.mesh";
       // mesh_file ="../data/square-disc.mesh";
-      mesh = new Mesh(mesh_file,1,1);
+      mesh = new Mesh(mesh_file, 1, 1);
    }
    else if (prob == waveguide)
    {
-      // mesh = new Mesh(8, 1, 1, Element::HEXAHEDRON, true, 8, 1, 1, false);
-      // mesh_file= "../data/beam-hex.mesh";
       mesh = new Mesh(8, 1, 1, Element::HEXAHEDRON, true, 8, 1, 1, false);
    }
    else if (prob == cyl_waveguide)
    {
-      // mesh = new Mesh(8, 1, 1, Element::HEXAHEDRON, true, 8, 1, 1, false);
-      // mesh_file= "../data/beam-hex.mesh";
-      // mesh_file= "cylinder_h20.mesh";
+      // mesh_file= "cylinder_h80.mesh";
+      mesh_file = "cylinder_h40.mesh";
       // mesh_file= "pipe_p2.mesh";
-      mesh_file= "hollow_cyl.mesh";
-      mesh = new Mesh(mesh_file,1,1);
+      // mesh_file= "hollow_cyl.mesh";
+      mesh = new Mesh(mesh_file, 1, 1);
    }
-   
+
    dim = mesh->Dimension();
    compute_pml_mesh_data(mesh);
 
@@ -146,7 +153,7 @@ int main(int argc, char *argv[])
    //    'ref_levels' to be the largest number that gives a final mesh with no
    //    more than 1,000 elements.
    {
-         //  (int)floor(log(1000. / mesh->GetNE()) / log(2.) / dim);
+      //  (int)floor(log(1000. / mesh->GetNE()) / log(2.) / dim);
       for (int l = 0; l < ref_levels; l++)
       {
          mesh->UniformRefinement();
@@ -198,7 +205,12 @@ int main(int argc, char *argv[])
    //    (f,phi_i) where f is given by the function f_exact and phi_i are the
    //    basis functions in the finite element fespace.
    // Right hand side is zero
+   VectorFunctionCoefficient f_Im(dim, source_im);
    ParComplexLinearForm b(fespace, ComplexOperator::HERMITIAN);
+   if (prob == load_src)
+   {
+      b.AddDomainIntegrator(NULL, new VectorFEDomainLFIntegrator(f_Im));
+   }
    b.real().Vector::operator=(0.0);
    b.imag().Vector::operator=(0.0);
    b.Assemble();
@@ -230,9 +242,8 @@ int main(int argc, char *argv[])
    ScalarMatrixProductCoefficient pml_c2_Re(sigma, temp_c2_Re);
    ScalarMatrixProductCoefficient pml_c2_Im(sigma, temp_c2_Im);
 
-
    ParSesquilinearForm a(fespace, ComplexOperator::HERMITIAN);
-   
+
    if (dim == 3)
    {
       a.AddDomainIntegrator(new CurlCurlIntegrator(pml_c1_Re),
@@ -247,53 +258,33 @@ int main(int argc, char *argv[])
                          new VectorFEMassIntegrator(pml_c2_Im));
    a.Assemble();
 
-
    OperatorHandle Ah;
    Vector B, X;
    a.FormLinearSystem(ess_tdof_list, x, b, Ah, X, B);
 
    // Transform to monolithic HypreParMatrix
-   HypreParMatrix * A = Ah.As<ComplexHypreParMatrix>()->GetSystemMatrix();
+   HypreParMatrix *A = Ah.As<ComplexHypreParMatrix>()->GetSystemMatrix();
 
    if (myid == 0)
    {
       cout << "Size of linear system: " << A->GetGlobalNumRows() << endl;
    }
 
-
-   // // SuperLU direct solver
-   // SuperLURowLocMatrix *SA = new SuperLURowLocMatrix(*A);
-   // SuperLUSolver *superlu = new SuperLUSolver(MPI_COMM_WORLD);
-   // superlu->SetPrintStatistics(false);
-   // superlu->SetSymmetricPattern(false);
-   // superlu->SetColumnPermutation(superlu::PARMETIS);
-   // superlu->SetOperator(*SA);
-   // superlu->Mult(B, X);
-
-   // cout << "Total number of elements: " << elems_pml.Size() << endl;
-   // cout << "pml layer elements: " << elems_pml.Size() - elems_pml.Sum(); cout << endl;
-   // cout << "computational domain elements: " << elems_pml.Sum(); cout << endl;
-
-
-
-   const char *petscrc_file = "petscrc_mult_options";
-   MFEMInitializePetsc(NULL, NULL, petscrc_file, NULL);
-   PetscLinearSolver * invA = new PetscLinearSolver(MPI_COMM_WORLD, "direct");
-   PetscParMatrix *PA = new PetscParMatrix(A, Operator::PETSC_MATAIJ);
-   invA->SetOperator(*PA);
-   invA->Mult(B,X);
-   delete PA;
-   MFEMFinalizePetsc();
+   // SuperLU direct solver
+   SuperLURowLocMatrix *SA = new SuperLURowLocMatrix(*A);
+   SuperLUSolver *superlu = new SuperLUSolver(MPI_COMM_WORLD);
+   superlu->SetPrintStatistics(false);
+   superlu->SetSymmetricPattern(false);
+   superlu->SetColumnPermutation(superlu::PARMETIS);
+   superlu->SetOperator(*SA);
+   superlu->Mult(B, X);
 
    // 13. Recover the parallel grid function corresponding to X. This is the
    //     local finite element solution on each processor.
    a.RecoverFEMSolution(X, b, x);
 
-
    ParComplexGridFunction x_gf(fespace);
    x_gf.ProjectCoefficient(E_Re, E_Im);
-
-
 
    // Compute error
    if (prob == scatter || prob == waveguide)
@@ -305,19 +296,22 @@ int main(int argc, char *argv[])
          irs[i] = &(IntRules.Get(i, order_quad));
       }
 
-      double L2Error_Re = x.real().ComputeL2Error(E_Re, irs,&elems_pml);
-      double L2Error_Im = x.imag().ComputeL2Error(E_Im, irs,&elems_pml);
+      double L2Error_Re = x.real().ComputeL2Error(E_Re, irs, &elems_pml);
+      double L2Error_Im = x.imag().ComputeL2Error(E_Im, irs, &elems_pml);
 
       ParComplexGridFunction x_gf0(fespace);
       x_gf0 = 0.0;
-      double norm_E_Re = x_gf0.real().ComputeL2Error(E_Re, irs,&elems_pml);
-      double norm_E_Im = x_gf0.imag().ComputeL2Error(E_Im, irs,&elems_pml);
+      double norm_E_Re = x_gf0.real().ComputeL2Error(E_Re, irs, &elems_pml);
+      double norm_E_Im = x_gf0.imag().ComputeL2Error(E_Im, irs, &elems_pml);
 
       if (myid == 0)
       {
-         cout << " Rel Error - Real Part: || E_h - E || / ||E|| = " << L2Error_Re / norm_E_Re << '\n' << endl;
-         cout << " Rel Error - Imag Part: || E_h - E || / ||E|| = " << L2Error_Im / norm_E_Im << '\n' << endl;
-         cout << " Total Error: " << sqrt(L2Error_Re*L2Error_Re + L2Error_Im*L2Error_Im) << endl;
+         cout << " Rel Error - Real Part: || E_h - E || / ||E|| = " << L2Error_Re / norm_E_Re << '\n'
+              << endl;
+         cout << " Rel Error - Imag Part: || E_h - E || / ||E|| = " << L2Error_Im / norm_E_Im << '\n'
+              << endl;
+         cout << " Total Error: " << sqrt(L2Error_Re * L2Error_Re + L2Error_Im * L2Error_Im)
+              << endl;
       }
    }
 
@@ -335,29 +329,37 @@ int main(int argc, char *argv[])
       }
       char vishost[] = "localhost";
       int visport = 19916;
-      socketstream src_sock_re(vishost, visport);
-      src_sock_re << "parallel " << num_procs << " " << myid << "\n";
-      src_sock_re.precision(8);
-      src_sock_re << "solution\n" << *pmesh << x_gf.real() << keys <<"window_title 'Source real part'" << flush;
+      // socketstream src_sock_re(vishost, visport);
+      // src_sock_re << "parallel " << num_procs << " " << myid << "\n";
+      // src_sock_re.precision(8);
+      // src_sock_re << "solution\n"
+      //             << *pmesh << x_gf.real() << keys
+      //             << "window_title 'Source real part'" << flush;
 
-      MPI_Barrier(MPI_COMM_WORLD);
-      socketstream src_sock_im(vishost, visport);
-      src_sock_im << "parallel " << num_procs << " " << myid << "\n";
-      src_sock_im.precision(8);
-      src_sock_im << "solution\n" << *pmesh << x_gf.imag() << keys <<"window_title 'Source imag part'" << flush;
+      // MPI_Barrier(MPI_COMM_WORLD);
+      // socketstream src_sock_im(vishost, visport);
+      // src_sock_im << "parallel " << num_procs << " " << myid << "\n";
+      // src_sock_im.precision(8);
+      // src_sock_im << "solution\n"
+      //             << *pmesh << x_gf.imag() << keys
+      //             << "window_title 'Source imag part'" << flush;
 
       MPI_Barrier(MPI_COMM_WORLD);
       socketstream sol_sock_re(vishost, visport);
       sol_sock_re << "parallel " << num_procs << " " << myid << "\n";
       sol_sock_re.precision(8);
-      sol_sock_re << "solution\n" << *pmesh << x.real() << keys <<"window_title 'Solution real part'" << flush;
+      sol_sock_re << "solution\n"
+                  << *pmesh << x.real() << keys
+                  << "window_title 'Solution real part'" << flush;
 
       MPI_Barrier(MPI_COMM_WORLD);
       socketstream sol_sock_im(vishost, visport);
       sol_sock_im << "parallel " << num_procs << " " << myid << "\n";
       sol_sock_im.precision(8);
-      sol_sock_im << "solution\n" << *pmesh << x.imag() << keys <<"window_title 'Solution imag part'" << flush;
-   
+      sol_sock_im << "solution\n"
+                  << *pmesh << x.imag() << keys
+                  << "window_title 'Solution imag part'" << flush;
+
       // MPI_Barrier(MPI_COMM_WORLD);
       // ParGridFunction u_err_re(fespace);
       // subtract(x.real(),x_gf.real(), u_err_re);
@@ -383,14 +385,16 @@ int main(int argc, char *argv[])
       socketstream sol_sock(vishost, visport);
       sol_sock << "parallel " << num_procs << " " << myid << "\n";
       sol_sock.precision(8);
-      sol_sock << "solution\n" << *pmesh << x_t << keys <<"autoscale off\n"
-               // << "valuerange -4.0  4.0 \n " 
+      sol_sock << "solution\n"
+               << *pmesh << x_t << keys << "autoscale off\n"
+               // << "valuerange -4.0  4.0 \n "
                << "window_title 'Harmonic Solution (t = 0.0 T)'"
-               << "pause\n" << flush;
+               << "pause\n"
+               << flush;
       if (myid == 0)
          cout << "GLVis visualization paused."
               << " Press space (in the GLVis window) to resume it.\n";
-      int num_frames = 16;
+      int num_frames = 32;
       int i = 0;
       while (sol_sock)
       {
@@ -401,13 +405,12 @@ int main(int argc, char *argv[])
          add(cos(omega * t), x.real(),
              sin(omega * t), x.imag(), x_t);
          sol_sock << "parallel " << num_procs << " " << myid << "\n";
-         sol_sock << "solution\n" << *pmesh << x_t 
+         sol_sock << "solution\n"
+                  << *pmesh << x_t
                   << "window_title '" << oss.str() << "'" << flush;
          i++;
       }
-
    }
-
 
    // 17. Free the used memory.
    // delete superlu;
@@ -420,14 +423,39 @@ int main(int argc, char *argv[])
    return 0;
 }
 
+void source_im(const Vector &x, Vector &f_im)
+{
+   // double x0 = 10.*x(0);
+   // double x1 = 10.*x(1);
+   // double r = sqrt(pow(x0- alpha, 2.) + pow(x1 - beta, 2.));
 
-void compute_pml_mesh_data(Mesh * mesh)
+   Vector center(dim);
+   double r = 0.0;
+   for (int i=0; i<dim; ++ i) 
+   {
+      center(i) = 0.5*(  comp_domain_bdr(i,0) + comp_domain_bdr(i,1));
+      r += pow(x[i]- center[i], 2.);
+   }   
+
+   // f_im = 0.0;
+   // double coeff = 1000.0;
+   // f_im[0] = omega * exp(-coeff * r*r);
+
+   double n = 5.0 * omega/M_PI;
+   double coeff = pow(n,2)/M_PI;
+   double alpha = - pow(n,2) * r;
+
+   f_im[0] =  coeff * exp(alpha);
+
+}
+
+void compute_pml_mesh_data(Mesh *mesh)
 {
    mesh->EnsureNodes();
-   GridFunction * nodes = mesh->GetNodes();
-   // Assuming square/cubic domain 
+   GridFunction *nodes = mesh->GetNodes();
+   // Assuming square/cubic domain
    int ndofs = nodes->FESpace()->GetNDofs();
-   Array2D<double> coords(ndofs,dim);
+   Array2D<double> coords(ndofs, dim);
    Vector xcoords(ndofs), ycoords(ndofs), zcoords(ndofs);
 
    for (int comp = 0; comp < nodes->FESpace()->GetVDim(); comp++)
@@ -450,49 +478,49 @@ void compute_pml_mesh_data(Mesh * mesh)
       }
    }
 
-   domain_bdr.SetSize(3,2);
-   domain_bdr(0,0) = xcoords.Min();
-   domain_bdr(0,1) = xcoords.Max();
-   domain_bdr(1,0) = ycoords.Min();
-   domain_bdr(1,1) = ycoords.Max();
-   domain_bdr(2,0) = zcoords.Min();
-   domain_bdr(2,1) = zcoords.Max();
+   domain_bdr.SetSize(3, 2);
+   domain_bdr(0, 0) = xcoords.Min();
+   domain_bdr(0, 1) = xcoords.Max();
+   domain_bdr(1, 0) = ycoords.Min();
+   domain_bdr(1, 1) = ycoords.Max();
+   domain_bdr(2, 0) = zcoords.Min();
+   domain_bdr(2, 1) = zcoords.Max();
 
-   pml_lngth.SetSize(dim,2);
-   comp_domain_bdr.SetSize(dim,2);
-   if (prob == scatter)
+   pml_lngth.SetSize(dim, 2);
+   comp_domain_bdr.SetSize(dim, 2);
+   if (prob == scatter || prob == load_src)
    {
-      for (int i=0; i<dim; i++)
+      for (int i = 0; i < dim; i++)
       {
-         for (int j=0; j<2; j++)
+         for (int j = 0; j < 2; j++)
          {
-            pml_lngth(i,j) = 0.125 * (domain_bdr(i,1) - domain_bdr(i,0));
+            pml_lngth(i, j) = 0.25 * (domain_bdr(i, 1) - domain_bdr(i, 0));
          }
-         comp_domain_bdr(i,0) = domain_bdr(i,0) + pml_lngth(i,0);
-         comp_domain_bdr(i,1) = domain_bdr(i,1) - pml_lngth(i,1);
+         comp_domain_bdr(i, 0) = domain_bdr(i, 0) + pml_lngth(i, 0);
+         comp_domain_bdr(i, 1) = domain_bdr(i, 1) - pml_lngth(i, 1);
       }
    }
    else if (prob == waveguide)
    {
-      for (int i=0; i<dim; i++)
+      for (int i = 0; i < dim; i++)
       {
-         comp_domain_bdr(i,0) = domain_bdr(i,0);
-         comp_domain_bdr(i,1) = domain_bdr(i,1);
-      }   
+         comp_domain_bdr(i, 0) = domain_bdr(i, 0);
+         comp_domain_bdr(i, 1) = domain_bdr(i, 1);
+      }
       // pml only in the x direction
-      pml_lngth(0,1) = 0.125 * (domain_bdr(0,1) - domain_bdr(0,0));
-      comp_domain_bdr(0,1) = domain_bdr(0,1) - pml_lngth(0,1);
+      pml_lngth(0, 1) = 0.25 * (domain_bdr(0, 1) - domain_bdr(0, 0));
+      comp_domain_bdr(0, 1) = domain_bdr(0, 1) - pml_lngth(0, 1);
    }
    else if (prob == cyl_waveguide)
    {
-      for (int i=0; i<dim; i++)
+      for (int i = 0; i < dim; i++)
       {
-         comp_domain_bdr(i,0) = domain_bdr(i,0);
-         comp_domain_bdr(i,1) = domain_bdr(i,1);
-      }   
+         comp_domain_bdr(i, 0) = domain_bdr(i, 0);
+         comp_domain_bdr(i, 1) = domain_bdr(i, 1);
+      }
       // pml only in the z direction
-      pml_lngth(2,1) = 0.125 * (domain_bdr(2,1) - domain_bdr(2,0));
-      comp_domain_bdr(2,1) = domain_bdr(2,1) - pml_lngth(2,1);
+      pml_lngth(2, 1) = 0.125 * (domain_bdr(2, 1) - domain_bdr(2, 0));
+      comp_domain_bdr(2, 1) = domain_bdr(2, 1) - pml_lngth(2, 1);
 
       // pml only in the x direction
       // pml_lngth(0,1) = 0.125 * (domain_bdr(0,1) - domain_bdr(0,0));
@@ -504,8 +532,7 @@ void compute_pml_mesh_data(Mesh * mesh)
    // domain_bdr.Print();
 }
 
-
-void compute_pml_elem_list(ParMesh * pmesh, Array<int> & elem_pml)
+void compute_pml_elem_list(ParMesh *pmesh, Array<int> &elem_pml)
 {
    int nrelem = pmesh->GetNE();
    // initialize list with 1
@@ -513,43 +540,46 @@ void compute_pml_elem_list(ParMesh * pmesh, Array<int> & elem_pml)
    elem_pml = 1;
    // loop through the elements and identify which of them are in the pml
    pmesh->EnsureNodes();
-   GridFunction * nodes = pmesh->GetNodes();
-   // Assuming square/cubic domain 
+   GridFunction *nodes = pmesh->GetNodes();
+   // Assuming square/cubic domain
    int ndofs = nodes->FESpace()->GetNDofs();
-   Array2D<double> coords(ndofs,dim);
+   Array2D<double> coords(ndofs, dim);
 
    for (int comp = 0; comp < dim; comp++)
    {
       // cout << comp << endl;
       for (int i = 0; i < ndofs; i++)
       {
-         coords(i,comp) = (*nodes)[nodes->FESpace()->DofToVDof(i, comp)];
+         coords(i, comp) = (*nodes)[nodes->FESpace()->DofToVDof(i, comp)];
       }
    }
 
    for (int i = 0; i < nrelem; ++i)
    {
-      Element * el = pmesh->GetElement(i);
+      Element *el = pmesh->GetElement(i);
       Array<int> vertices;
       el->GetVertices(vertices);
-      // get the elent 
+      // get the elent
       int nrvert = vertices.Size();
       // Check if any vertex is in the pml
       bool in_pml = false;
-      for (int iv=0; iv<nrvert; ++iv)
+      for (int iv = 0; iv < nrvert; ++iv)
       {
          int vert_idx = vertices[iv];
-         for (int comp = 0; comp<dim; ++ comp)
+         for (int comp = 0; comp < dim; ++comp)
          {
-           if (coords(vert_idx,comp) > comp_domain_bdr(comp,1) ||
-               coords(vert_idx,comp) < comp_domain_bdr(comp,0))
-            {  
+            if (coords(vert_idx, comp) > comp_domain_bdr(comp, 1) ||
+                coords(vert_idx, comp) < comp_domain_bdr(comp, 0))
+            {
                in_pml = true;
                break;
             }
          }
-      }   
-      if (in_pml) elem_pml[i] = 0;
+      }
+      if (in_pml)
+      {
+         elem_pml[i] = 0;
+      }
    }
 }
 
@@ -557,84 +587,100 @@ void maxwell_ess_data(const Vector &x, std::vector<std::complex<double>> &E)
 {
    // Initialize
    for (int i = 0; i < dim; ++i)
+   {
       E[i] = complex<double>(0., 0.);
+   }
 
    std::complex<double> zi = std::complex<double>(0., 1.);
 
-   if (prob == waveguide) 
+   if (prob == waveguide)
    {
-      // double k10 = sqrt(omega*omega - M_PI * M_PI);
-      // E[1] = - zi * omega / M_PI * sin(M_PI* x(2)) * exp(zi * k10 * x(0)); // T_10 mode
+      double k10 = sqrt(omega * omega - M_PI * M_PI);
+      E[1] = -zi * omega / M_PI * sin(M_PI * x(2)) * exp(zi * k10 * x(0)); // T_10 mode
       // // normalize
       double Ho = omega / M_PI;
       // E[1] /= Ho;
-      double k20 = sqrt(omega*omega - 4.0 * M_PI * M_PI);
-      E[1] = - zi * omega / (2.0 * M_PI) * sin(2.0 * M_PI* x(2)) * exp(zi * k20 * x(0)); // T_20 mode
-      Ho = omega / (2.0 * M_PI);
+      //   double k20 = sqrt(omega*omega - 4.0 * M_PI * M_PI);
+      //   E[1]=-zi * omega / (2.0 * M_PI) * sin(2.0 * M_PI* x(2)) * exp(zi * k20 * x(0)); // T_20 mode
+      //   double Ho = omega / (2.0 * M_PI);
       E[1] /= Ho;
    }
-   else if (prob == cyl_waveguide) 
+   else if (prob == cyl_waveguide)
    {
-      // double r = sqrt(x(0)*x(0) + x(1)*x(1));
-      // double th = atan(x(1)/x(0));
-      // double omega_11 = 1.8412;
-      // complex<double> E_r  =  omega / (r * omega_11 * omega_11) * j1(omega_11 * r) * exp(zi * th);
-      // double dj1 = omega_11 * (j0(omega_11 * r) - 1/(omega_11 * r) * j1(omega_11* r)); 
-      // complex<double> E_th = zi * omega / omega_11 * dj1 * exp(zi * th);
-      // E[0] = cos(th) * E_r - sin(th) * E_th;
-      // E[1] = sin(th) * E_r + cos(th) * E_th;
-      // E[1] = exp(zi * omega * x(2));
-      // E[0] = 1;
-      E[1] = 1.0;
+      // if (x[2] == 0.0)
+      // {
+      //    double r = sqrt(x(0)*x(0) + x(1)*x(1));
+      //    double th = atan(x(1)/x(0));
+      //    double omega_11 = 1.30;
+      //    double k11 = 0.15;
+      //    complex<double> E_r  =  omega / (r * omega_11 * omega_11) * j1(omega_11 * r) * exp(zi * th);
+      //    double dj1 = omega_11 * (j0(omega_11 * r) - 1.0/(omega_11 * r) * j1(omega_11* r));
+      //    complex<double> E_th = zi * omega / omega_11 * dj1 * exp(zi * th);
+      //    E[0] = cos(th) * E_r - sin(th) * E_th;
+      //    E[1] = sin(th) * E_r + cos(th) * E_th;
+
+      //    E[0] *= exp(zi * k11 * x(2));
+      //    E[1] *= exp(zi * k11 * x(2));
+      // }
+
+      //   E[1] = exp(zi * omega * x(2));
+      //   E[0] = 1.0;
+      //   E[1] = 1.0*exp(-2.0*pow(r,2));
+      //   E[1] = 1.0;
+      if (x[2] == 0.0)
+      {
+         E[0] = 1.0;
+         E[1] = 1.0;
+      }
    }
-   else if(prob == scatter) // point source (scattering)
+   else if (prob == scatter) // point source (scattering)
    {
       Vector shift(dim);
       shift = 0.0;
-      for (int i=0; i<dim; ++i) shift(i) = - 0.5 * (domain_bdr(i,0)+domain_bdr(i,1));
+      for (int i = 0; i < dim; ++i)
+      {
+         shift(i) = -0.5 * (domain_bdr(i, 0) + domain_bdr(i, 1));
+      }
 
       if (dim == 2)
       {
-         double x0 = x(0)+shift(0);
-         double x1 = x(1)+shift(1);
+         double x0 = x(0) + shift(0);
+         double x1 = x(1) + shift(1);
          std::complex<double> val, val_x, val_xx, val_xy;
          double r = sqrt(x0 * x0 + x1 * x1);
          double beta = omega * r;
-         
+
          // Ho = Jo(r) + i Yo(r)
          // Ho_r  = - H_1 = - (J1(r) + i Y1(r))
          // Ho_rr = - (i/r *(J1(r) + i Y1(r)) - (J2(r) + i y2(r)))
          // Special functions (Bessel functions)
-         complex<double> Ho = jn(0,beta) + zi * yn(0,beta);
-         complex<double> Ho_r = - omega * (jn(1,beta) + zi * yn(1,beta)); 
-         complex<double> Ho_rr = -omega * omega * (1.0/beta * (jn(1,beta) + zi*yn(1,beta))
-                                 - (jn(2,beta) + zi * yn(2,beta)));
-
-         
+         complex<double> Ho = jn(0, beta) + zi * yn(0, beta);
+         complex<double> Ho_r = -omega * (jn(1, beta) + zi * yn(1, beta));
+         complex<double> Ho_rr = -omega * omega * (1.0 / beta * (jn(1, beta) + zi * yn(1, beta)) - (jn(2, beta) + zi * yn(2, beta)));
 
          // derivative with respect to x
-         double r_x = x0 / r; 
-         double r_y = x1 / r; 
+         double r_x = x0 / r;
+         double r_y = x1 / r;
          double r_xy = -(r_x / r) * r_y;
          double r_xx = (1.0 / r) * (1.0 - r_x * r_x);
 
-         val = 0.25* zi * Ho; // i/4 * H_0^1(omega * r)
-         val_x  = 0.25* zi * r_x * Ho_r;
-         val_xx = 0.25* zi * (r_xx * Ho_r + r_x * r_x * Ho_rr);
-         val_xy = 0.25* zi * (r_xy * Ho_r + r_x * r_y * Ho_rr);
+         val = 0.25 * zi * Ho; // i/4 * H_0^1(omega * r)
+         val_x = 0.25 * zi * r_x * Ho_r;
+         val_xx = 0.25 * zi * (r_xx * Ho_r + r_x * r_x * Ho_rr);
+         val_xy = 0.25 * zi * (r_xy * Ho_r + r_x * r_y * Ho_rr);
          E[0] = zi / omega * (omega * omega * val + val_xx);
          E[1] = zi / omega * val_xy;
       }
       else
       {
-         double x0 = x(0)+shift(0);
-         double x1 = x(1)+shift(1);
-         double x2 = x(2)+shift(2);
+         double x0 = x(0) + shift(0);
+         double x1 = x(1) + shift(1);
+         double x2 = x(2) + shift(2);
          double r = sqrt(x0 * x0 + x1 * x1 + x2 * x2);
 
-         double r_x = x0/r;
-         double r_y = x1/r;
-         double r_z = x2/r;
+         double r_x = x0 / r;
+         double r_y = x1 / r;
+         double r_z = x2 / r;
          double r_xx = (1.0 / r) * (1.0 - r_x * r_x);
          double r_yx = -(r_y / r) * r_x;
          double r_zx = -(r_z / r) * r_x;
@@ -644,19 +690,19 @@ void maxwell_ess_data(const Vector &x, std::vector<std::complex<double>> &E)
          complex<double> val_xx, val_yx, val_zx;
          complex<double> val_r, val_rr;
 
-         val = exp(zi*omega*r)/r;
+         val = exp(zi * omega * r) / r;
          val_r = val / r * (zi * omega - 1.0);
-         val_rr = val/(r*r) * (-omega * omega * r * r - 2.*zi * omega * r + 2.);
-         val_x = val_r*r_x;
-         val_y = val_r*r_y;
-         val_z = val_r*r_z;
+         val_rr = val / (r * r) * (-omega * omega * r * r - 2. * zi * omega * r + 2.);
+         val_x = val_r * r_x;
+         val_y = val_r * r_y;
+         val_z = val_r * r_z;
 
          val_xx = val_rr * r_x * r_x + val_r * r_xx;
          val_yx = val_rr * r_x * r_y + val_r * r_yx;
          val_zx = val_rr * r_x * r_z + val_r * r_zx;
 
-         complex<double> alpha; 
-         alpha = zi*omega / 4.0 / M_PI / omega / omega;
+         complex<double> alpha;
+         alpha = zi * omega / 4.0 / M_PI / omega / omega;
          E[0] = alpha * (omega * omega * val + val_xx);
          E[1] = alpha * val_yx;
          E[2] = alpha * val_zx;
@@ -674,7 +720,7 @@ void E_bdr_data_Re(const Vector &x, Vector &E)
       for (int i = 0; i < dim; ++i)
       {
          // check if x(i) is in the computational domain or not
-         if (abs(x(i) - domain_bdr(i,0)) < 1e-13 || abs(x(i) - domain_bdr(i,1)) < 1e-13)
+         if (abs(x(i) - domain_bdr(i, 0)) < 1e-13 || abs(x(i) - domain_bdr(i, 1)) < 1e-13)
          {
             in_pml = true;
             break;
@@ -684,37 +730,49 @@ void E_bdr_data_Re(const Vector &x, Vector &E)
       {
          std::vector<std::complex<double>> Eval(E.Size());
          maxwell_ess_data(x, Eval);
-         for (int i = 0; i < dim; ++i) E[i] = Eval[i].real();
+         for (int i = 0; i < dim; ++i)
+         {
+            E[i] = Eval[i].real();
+         }
       }
    }
    else if (prob == waveguide)
-   { // waveguide problem
+   {
+      // waveguide problem
       std::vector<std::complex<double>> Eval(E.Size());
       maxwell_ess_data(x, Eval);
-      for (int i = 0; i < dim; ++i) E[i] = Eval[i].real();
-      if (abs(x(0)-domain_bdr(0,1)) < 1e-13 ) E = 0.0;
+      for (int i = 0; i < dim; ++i)
+      {
+         E[i] = Eval[i].real();
+      }
+      if (abs(x(0) - domain_bdr(0, 1)) < 1e-13)
+      {
+         E = 0.0;
+      }
    }
    else if (prob == cyl_waveguide)
-   { // waveguide problem
+   {
+      // waveguide problem
       std::vector<std::complex<double>> Eval(E.Size());
-      if (abs(x(2)) < 1e-12) 
-      {
-         maxwell_ess_data(x, Eval);
-         for (int i = 0; i < dim; ++i) E[i] = Eval[i].real();
-      }
+      //   if (abs(x(2)) < 1e-12)
+      //   {
+      maxwell_ess_data(x, Eval);
+      for (int i = 0; i < dim; ++i)
+         E[i] = Eval[i].real();
+      // if (abs(x(2)-domain_bdr(2,1)) < 1e-12) E = 0.0;
    }
 }
 
 //define bdr_data solution
 void E_bdr_data_Im(const Vector &x, Vector &E)
 {
-  E = 0.0;
+   E = 0.0;
    bool in_pml = false;
    if (prob == scatter)
    {
       for (int i = 0; i < dim; ++i)
       {
-         if (abs(x(i) - domain_bdr(i,0)) < 1e-13 || abs(x(i) - domain_bdr(i,1)) < 1e-13)
+         if (abs(x(i) - domain_bdr(i, 0)) < 1e-13 || abs(x(i) - domain_bdr(i, 1)) < 1e-13)
          {
             in_pml = true;
             break;
@@ -724,31 +782,42 @@ void E_bdr_data_Im(const Vector &x, Vector &E)
       {
          std::vector<std::complex<double>> Eval(E.Size());
          maxwell_ess_data(x, Eval);
-         for (int i = 0; i < dim; ++i) E[i] = Eval[i].imag();
+         for (int i = 0; i < dim; ++i)
+         {
+            E[i] = Eval[i].imag();
+         }
       }
    }
    else if (prob == waveguide)
-   { // waveguide problem
+   {
+      // waveguide problem
       std::vector<std::complex<double>> Eval(E.Size());
       maxwell_ess_data(x, Eval);
-      for (int i = 0; i < dim; ++i) E[i] = Eval[i].imag();
-      if (abs(x(0)-domain_bdr(0,1)) < 1e-13 ) E = 0.0;
+      for (int i = 0; i < dim; ++i)
+      {
+         E[i] = Eval[i].imag();
+      }
+      if (abs(x(0) - domain_bdr(0, 1)) < 1e-13)
+      {
+         E = 0.0;
+      }
    }
    else if (prob == cyl_waveguide)
-   { // waveguide problem
+   {
+      // waveguide problem
       std::vector<std::complex<double>> Eval(E.Size());
-      if (abs(x(2)) < 1e-12) 
-      {
-         maxwell_ess_data(x, Eval);
-         for (int i = 0; i < dim; ++i) E[i] = Eval[i].imag();
-      }
+      maxwell_ess_data(x, Eval);
+      for (int i = 0; i < dim; ++i)
+         E[i] = Eval[i].imag();
+
+      // if (abs(x(2)-domain_bdr(2,1)) < 1e-12) E = 0.0;
    }
 }
 
 // PML
 void pml_function(const Vector &x, std::vector<std::complex<double>> &dxs)
 {
-   std::complex<double> zi  = std::complex<double>(0., 1.);
+   std::complex<double> zi = std::complex<double>(0., 1.);
    std::complex<double> one = std::complex<double>(1., 0.);
 
    double n = 2.0;
@@ -756,22 +825,25 @@ void pml_function(const Vector &x, std::vector<std::complex<double>> &dxs)
    double coeff;
 
    // initialize to one
-   for (int i = 0; i < dim; ++i) dxs[i] = one;
+   for (int i = 0; i < dim; ++i)
+   {
+      dxs[i] = one;
+   }
 
    // Stretch in each direction independenly
    for (int i = 0; i < dim; ++i)
    {
-      for (int j=0; j<2; ++j)
+      for (int j = 0; j < 2; ++j)
       {
-         if (x(i) >= comp_domain_bdr(i,1))
+         if (x(i) >= comp_domain_bdr(i, 1))
          {
-            coeff = n * c / omega / pow(pml_lngth(i,1), n);
-            dxs[i] = one + zi * coeff * abs(pow(x(i) - comp_domain_bdr(i,1), n - 1.0));
+            coeff = n * c / omega / pow(pml_lngth(i, 1), n);
+            dxs[i] = one + zi * coeff * abs(pow(x(i) - comp_domain_bdr(i, 1), n - 1.0));
          }
-         if (x(i) <= comp_domain_bdr(i,0))
+         if (x(i) <= comp_domain_bdr(i, 0))
          {
-            coeff = n * c / omega / pow(pml_lngth(i,0), n);
-            dxs[i] = one + zi * coeff * abs(pow(x(i) - comp_domain_bdr(i,0), n - 1.0));
+            coeff = n * c / omega / pow(pml_lngth(i, 0), n);
+            dxs[i] = one + zi * coeff * abs(pow(x(i) - comp_domain_bdr(i, 0), n - 1.0));
          }
       }
    }
@@ -784,7 +856,9 @@ double pml_detJ_inv_Re(const Vector &x)
    complex<double> det(1.0, 0.0);
    pml_function(x, dxs);
    for (int i = 0; i < dim; ++i)
+   {
       det *= dxs[i];
+   }
 
    complex<double> det_inv = one / det;
    return det_inv.real();
@@ -796,7 +870,9 @@ double pml_detJ_inv_Im(const Vector &x)
    complex<double> det(1.0, 0.0);
    pml_function(x, dxs);
    for (int i = 0; i < dim; ++i)
+   {
       det *= dxs[i];
+   }
 
    complex<double> det_inv = one / det;
    return det_inv.imag();
