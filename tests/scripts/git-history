@@ -53,7 +53,7 @@ num_commits="$(git rev-list --count master..${current_branch})"
 
 if [ ${num_commits} -gt 10 ]
 then
-    echo "Rhis branch contains a very large number of commits! (${num_commits} not in master)" 1>&2
+    echo "This branch contains a very large number of commits! (${num_commits} commits not in master)" 1>&2
 fi
 
 # Check all the commits in the current branch, starting with the common ancestor
@@ -61,6 +61,7 @@ fi
 while read -r rev; do
     echo "Processing commit ${rev}"
     git checkout -q "${rev}"
+    shortrev="$(git log -1 --format=%h)"
 
     # Compute the total number of changes (line insertions + line deletions) in
     # all the files in the commit.
@@ -81,6 +82,7 @@ while read -r rev; do
             binary="$(file -b ${fname} | grep -v 'text')"
             if [ -n "${binary}" ] # non-empty files
             then
+                echo "Commit ${shortrev} contains a binary file: ${fname} (${binary})" 1>&2
                 echo "Commit ${rev} contains a binary file: ${fname} (${binary})" 1>&2
             fi
 
