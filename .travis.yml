@@ -14,8 +14,8 @@ jobs:
     #         Checks
     # ========================
     # - code-style
-    # - git-history
     # - documentation
+    # - gitignore
 
     - stage: checks
       name: "code-style"
@@ -27,20 +27,6 @@ jobs:
         - cd ${TRAVIS_BUILD_DIR}
         - cd tests/scripts
         - ./runtest code-style
-
-    - stage: checks
-      name: "git-history"
-      # need full git history for the binary/big files check
-      git:
-        depth: false
-      script:
-        - cd ${TRAVIS_BUILD_DIR}
-        # update master
-        - git fetch origin master:master
-        # checkout a branch (otherwise Travis works in detached head)
-        - git checkout -b travis_tests
-        - cd tests/scripts
-        - ./runtest git-history
 
     - stage: checks
       name: "documentation"
@@ -57,12 +43,7 @@ jobs:
         - cd tests/scripts
         - ./runtest documentation
 
-    # ========================
-    #  Optional Checks/Tests
-    # ========================
-    # - gitignore
-
-    - stage: optional
+    - stage: checks
       name: "gitignore"
       addons:
         apt:
@@ -77,6 +58,25 @@ jobs:
         - make test-noclean
         - cd tests/scripts
         - ./runtest gitignore
+
+    # ========================
+    #  Optional Checks/Tests
+    # ========================
+    # - git-history
+
+    - stage: optional
+      name: "git-history"
+      # need full git history for the binary/big files check
+      git:
+        depth: false
+      script:
+        - cd ${TRAVIS_BUILD_DIR}
+        # update master
+        - git fetch origin master:master
+        # checkout a branch (otherwise Travis works in detached head)
+        - git checkout -b travis_tests
+        - cd tests/scripts
+        - ./runtest git-history
 
     # ========================
     #       Linux tests
