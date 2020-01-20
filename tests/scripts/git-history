@@ -49,7 +49,7 @@ shift
 
 current_branch="$(git symbolic-ref --short HEAD)"
 
-num_commits="$(rev-list --count master..${current_branch})"
+num_commits="$(git rev-list --count master..${current_branch})"
 
 if [ ${num_commits} -gt 10 ]
 then
