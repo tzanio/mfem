@@ -59,7 +59,7 @@ fi
 # Check all the commits in the current branch, starting with the common ancestor
 # with master, for large and binary files
 while read -r rev; do
-    echo "Processing commit ${rev}"
+    # echo "Processing commit ${rev}"
     git checkout -q "${rev}"
     shortrev="$(git log -1 --format=%h)"
     echo "Processing commit ${shortrev}"
@@ -71,7 +71,7 @@ while read -r rev; do
     # If the total number of changes is more than 50K, print an error
     if [ ${changes} -gt 10 ]
     then
-        echo "Commit ${rev} is unusually large: it changes ${changes} lines" 1>&2
+        echo "Commit ${shortrev} is unusually large: it changes ${changes} lines" 1>&2
     fi
 
     # Loop over the files modified in the current commit.
@@ -84,14 +84,13 @@ while read -r rev; do
             if [ -n "${binary}" ] # non-empty files
             then
                 echo "Commit ${shortrev} contains a binary file: ${fname} (${binary})" 1>&2
-                echo "Commit ${rev} contains a binary file: ${fname} (${binary})" 1>&2
             fi
 
             # Report files greater than 50K
             size="$(du -k ${fname} | cut -f1)"
             if [ ${size} -gt 50 ]
             then
-                echo "Commit ${rev} adds/modifies a large file: ${fname} (size ${size}K)" 1>&2
+                echo "Commit ${shortrev} adds/modifies a large file: ${fname} (size ${size}K)" 1>&2
             fi
         fi
     done
