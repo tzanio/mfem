@@ -5,6 +5,7 @@ sudo: false
 stages:
   - checks
   - tests
+  - optional
 
 jobs:
   include:
@@ -15,7 +16,6 @@ jobs:
     # - code-style
     # - git-history
     # - documentation
-    # - gitignore
 
     - stage: checks
       name: "code-style"
@@ -57,7 +57,12 @@ jobs:
         - cd tests/scripts
         - ./runtest documentation
 
-    - stage: checks
+    # ========================
+    #  Optional Checks/Tests
+    # ========================
+    # - gitignore
+
+    - stage: optional
       name: "gitignore"
       addons:
         apt:
