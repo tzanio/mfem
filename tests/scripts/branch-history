@@ -79,7 +79,7 @@ echo "--> current_branch = '${current_branch}'" 1>&2
 
 # Check if the branch contains unusually large number of commits
 num_commits="$(git rev-list --count master..${current_branch})"
-echo "--> num_commits = '$num_commits}'" 1>&2
+echo "--> num_commits = '${num_commits}'" 1>&2
 if [ ${num_commits} -gt ${branch_max_commits} ]
 then
     printf '\033[35m'"This branch contains unusually many commits: " 1>&2
@@ -94,7 +94,7 @@ while read -r rev; do
 
     # Check if the commit changes an unusually large number of files
     files_changed="$(git show --pretty="" --shortstat ${rev} | awk '{print $1}')"
-    echo "--> git show --pretty="" --shortstat = '$(git show --pretty="" --shortstat ${rev})'" 1>&2
+    echo "--> git show --pretty=\"\" --shortstat = '$(git show --pretty="" --shortstat ${rev})'" 1>&2
     echo "--> files_changed = '${files_changed}'" 1>&2
     if [ ${files_changed} -gt ${commit_max_files_changed} ]
     then
@@ -111,10 +111,11 @@ while read -r rev; do
         printf "${lines_changed} total lines changed"'\033[0m\n' 1>&2
     fi
 
+    echo "--> git show --pretty=\"\" --numstat --no-renames = '$(git show --pretty="" --numstat --no-renames ${rev})'" 1>&2
+
     # Check all the files modified in the current commit:
-    for filelog in "$(git show --pretty="" --numstat ${rev})"
-    do
-	echo "--> git show --pretty="" --numstat = '$(git show --pretty="" --numstat ${rev})'" 1>&2
+    while read -r filelog; do
+	echo "--> filelog = '${filelog}'" 1>&2
         fname="$(echo ${filelog} | awk '{print $3}')"
 	echo "--> fname = '${fname}'" 1>&2
         if [ -e $fname ] # exclude deleted files
@@ -157,7 +158,7 @@ while read -r rev; do
                 printf "${fname} (${file_lines_deleted} lines deleted)"'\033[0m\n' 1>&2
             fi
         fi
-    done
+    done < <(git show --pretty="" --numstat --no-renames ${rev})
 done < <(git rev-list --reverse --no-merges master..${current_branch})
 
 # Return to the original branch and directory
