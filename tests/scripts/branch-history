@@ -68,7 +68,7 @@ commit_max_files_changed=0
 # Maximum number of acceptable lines changed in any commit in the branch
 commit_max_lines_changed=0
 # Maximum acceptable size (in K) of any file changed in any commit in the branch
-file_max_size=200
+file_max_size=0
 # Maximum number of acceptable lines added to any file changed in any commit in the branch
 file_max_lines_added=0
 # Maximum number of acceptable lines deleted from any file changed in any commit in the branch
