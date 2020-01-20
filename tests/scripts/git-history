@@ -49,6 +49,13 @@ shift
 
 current_branch="$(git symbolic-ref --short HEAD)"
 
+num_commits="$(rev-list --count master..${current_branch})"
+
+if [ ${num_commits} -gt 10 ]
+then
+    echo "Rhis branch contains a very large number of commits! (${num_commits} not in master)" 1>&2
+fi
+
 # Check all the commits in the current branch, starting with the common ancestor
 # with master, for large and binary files
 while read -r rev; do
@@ -60,7 +67,7 @@ while read -r rev; do
     changes=$(git show --pretty="" --numstat | awk '{change+=$1+$2} END {print change}')
 
     # If the total number of changes is more than 50K, print an error
-    if [ ${changes} -gt 50000 ]
+    if [ ${changes} -gt 10 ]
     then
         echo "Commit ${rev} is unusually large: it changes ${changes} lines" 1>&2
     fi
