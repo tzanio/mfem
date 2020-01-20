@@ -42,8 +42,8 @@ case $1 in
    - Check if an unusually large number of lines have been added to the file
    - Check if an unusually large number of lines have been deleted from the file
 
-   To be useful, the script should be run in a repository that is not in a
-   "detached HEAD" state.
+   To be useful, the script should be run in a clean repository that doesn't
+   have any uncommitted changes and is not in a "detached HEAD" state.
 
    Example usage: $0 ../..
 
@@ -63,17 +63,17 @@ mfem_dir=`pwd`
 shift
 
 # Maximum number of acceptable commits in the branch
-branch_max_commits=0
+branch_max_commits=10
 # Maximum number of acceptable files changed in any commit in the branch
-commit_max_files_changed=0
+commit_max_files_changed=2
 # Maximum number of acceptable lines changed in any commit in the branch
-commit_max_lines_changed=0
+commit_max_lines_changed=10
 # Maximum acceptable size (in K) of any file changed in any commit in the branch
-file_max_size=0
+file_max_size=20
 # Maximum number of acceptable lines added to any file changed in any commit in the branch
-file_max_lines_added=0
+file_max_lines_added=10
 # Maximum number of acceptable lines deleted from any file changed in any commit in the branch
-file_max_lines_deleted=0
+file_max_lines_deleted=10
 
 current_branch="$(git symbolic-ref --short HEAD)"
 echo "--> current_branch = '${current_branch}'" 1>&2
@@ -87,7 +87,7 @@ then
     printf "${num_commits} commits not in master"'\033[0m\n' 1>&2
 fi
 
-echo "--> git rev-list master..${current_branch} --objects = '$(git rev-list master..${current_branch} --objects | git cat-file --batch-check='%(objecttype) %(objectsize) %(rest)' | sed -n 's/^blob //p' | awk '{if (max[$2]<$1) max[$2]=$1} END {for (f in max) print max[f], f}' | sort --numeric-sort --key=1)'"
+echo "--> git rev-list master..${current_branch} --objects = '$(git rev-list master..${current_branch} --objects | git cat-file --batch-check='%(objecttype) %(objectsize) %(rest)' | sed -n 's/^blob //p' | awk '{if (max[$2]<$1) max[$2]=$1} END {for (f in max) print max[f], f}' | sort --numeric-sort --key=1)'" 1>&2
 
 # Check if the branch adds/modifies unusually large files (this can catch large
 # binary files not addressed by the checks below)
@@ -103,8 +103,9 @@ done < <(git rev-list master..${current_branch} --objects | git cat-file --batch
 
 # Check all the commits in the current branch (i.e. the commits that will be
 # merged in master, as shown in a GitHub PR):
-while read -r rev; do
-    echo "Processing commit ${rev}..." 1>&2
+while read -r rev
+do
+    echo "Processing commit ${rev}..."  1>&2
     git checkout -q "${rev}"
     shortrev="$(git log -1 --format=%h ${rev})" # short commit hash
 
@@ -130,14 +131,14 @@ while read -r rev; do
     echo "--> git show --pretty=\"\" --numstat --no-renames = '$(git show --pretty="" --numstat --no-renames ${rev})'" 1>&2
 
     # Check all the files modified in the current commit:
-    while read -r filelog; do
+    while read -r filelog
+    do
 	echo "--> filelog = '${filelog}'" 1>&2
         fname="$(echo ${filelog} | awk '{print $3}')"
         if [ -e $fname ] # exclude deleted files
         then
 	    echo "--> fname = '${fname}'" 1>&2
 	    echo "--> Processing file ${fname}..." 1>&2
-
             # Check if the file is binary (non-text file as reported by "file")
             binary="$(file -b ${fname} | grep -v 'text')"
             if [ -n "${binary}" ]
@@ -152,8 +153,8 @@ while read -r rev; do
 	    echo "--> file_size = '${file_size}'" 1>&2
             if [ ${file_size} -gt ${file_max_size} ]
             then
-		printf '\033[31m'"Commit ${shortrev} adds/modifies a large file: " 1>&2
-		printf "${fname} (size ${file_size}K)"'\033[0m\n' 1>&2
+                printf '\033[31m'"Commit ${shortrev} adds/modifies a large file: " 1>&2
+                printf "${fname} (size ${file_size}K)"'\033[0m\n' 1>&2
             fi
 
             # Check if an unusually large number of lines have been added to the file
@@ -161,8 +162,8 @@ while read -r rev; do
 	    echo "--> file_lines_added = '${file_lines_added}'" 1>&2
             if [ ${file_lines_added} -gt ${file_max_lines_added} ]
             then
-		printf '\033[31m'"Commit ${shortrev} adds unusually many lines to " 1>&2
-		printf "${fname} (${file_lines_added} lines added)"'\033[0m\n' 1>&2
+                printf '\033[31m'"Commit ${shortrev} adds unusually many lines to " 1>&2
+                printf "${fname} (${file_lines_added} lines added)"'\033[0m\n' 1>&2
             fi
 
             # Check if an unusually large number of lines have been deleted from the file
@@ -170,10 +171,10 @@ while read -r rev; do
 	    echo "--> file_lines_deleted = '${file_lines_deleted}'" 1>&2
             if [ ${file_lines_deleted} -gt ${file_max_lines_deleted} ]
             then
-		printf '\033[31m'"Commit ${shortrev} deletes unusually many lines from " 1>&2
-		printf "${fname} (${file_lines_deleted} lines deleted)"'\033[0m\n' 1>&2
+                printf '\033[31m'"Commit ${shortrev} deletes unusually many lines from " 1>&2
+                printf "${fname} (${file_lines_deleted} lines deleted)"'\033[0m\n' 1>&2
             fi
-	fi
+        fi
     done < <(git show --pretty="" --numstat --no-renames ${rev})
 done < <(git rev-list --reverse --no-merges master..${current_branch})
 
