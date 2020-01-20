@@ -37,6 +37,7 @@ case $1 in
    - Check if the commit changes an unusually large number of lines
 
    File-level checks:
+   - Check if the file is binary
    - Check if the file is unusually large
    - Check if an unusually large number of lines have been added to the file
    - Check if an unusually large number of lines have been deleted from the file
@@ -86,6 +87,8 @@ then
     printf "${num_commits} commits not in master"'\033[0m\n' 1>&2
 fi
 
+echo "--> git rev-list master..${current_branch} --objects = '$(git rev-list master..${current_branch} --objects | git cat-file --batch-check='%(objecttype) %(objectsize) %(rest)' | sed -n 's/^blob //p' | awk '{if (max[$2]<$1) max[$2]=$1} END {for (f in max) print max[f], f}' | sort --numeric-sort --key=1)'"
+
 # Check if the branch adds/modifies unusually large files (this can catch large
 # binary files not addressed by the checks below)
 while read -r obj; do
@@ -96,7 +99,7 @@ while read -r obj; do
         printf '\033[35m'"This branch adds/modifies a large file: " 1>&2
         printf "${obj_fname} (size ${obj_size}K)"'\033[0m\n' 1>&2
     fi
-done < <(git rev-list 8d50f48191d9db61c3ae600d56f868bfb15c025f --objects | git cat-file --batch-check='%(objecttype) %(objectsize) %(rest)' | sed -n 's/^blob //p' | awk '{if (max[$2]<$1) max[$2]=$1} END {for (f in max) print max[f], f}' | sort --numeric-sort --key=1)
+done < <(git rev-list master..${current_branch} --objects | git cat-file --batch-check='%(objecttype) %(objectsize) %(rest)' | sed -n 's/^blob //p' | awk '{if (max[$2]<$1) max[$2]=$1} END {for (f in max) print max[f], f}' | sort --numeric-sort --key=1)
 
 # Check all the commits in the current branch (i.e. the commits that will be
 # merged in master, as shown in a GitHub PR):
@@ -130,11 +133,18 @@ while read -r rev; do
     while read -r filelog; do
 	echo "--> filelog = '${filelog}'" 1>&2
         fname="$(echo ${filelog} | awk '{print $3}')"
-
-	if [ -e $fname ] # exclude deleted files
+        if [ -e $fname ] # exclude deleted files
         then
 	    echo "--> fname = '${fname}'" 1>&2
-	    echo "   Processing file ${fname}..." 1>&2
+	    echo "--> Processing file ${fname}..." 1>&2
+
+            # Check if the file is binary (non-text file as reported by "file")
+            binary="$(file -b ${fname} | grep -v 'text')"
+            if [ -n "${binary}" ]
+            then
+                printf '\033[31m'"Commit ${shortrev} contains a binary file: " 1>&2
+                printf "${fname} (${binary})"'\033[0m\n' 1>&2
+            fi
 
             # Check if the file is unusually large
             file_size="$(du -k ${fname} | cut -f1)"
