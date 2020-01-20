@@ -59,6 +59,20 @@ jobs:
         - cd tests/scripts
         - ./runtest gitignore
 
+    - stage: checks
+      name: "branch-history"
+      # need full git history for the binary/big files check
+      git:
+        depth: false
+      script:
+        - cd ${TRAVIS_BUILD_DIR}
+        # update master
+        - git fetch origin master:master
+        # checkout a branch (otherwise Travis works in detached head)
+        - git checkout -b travis_tests
+        - cd tests/scripts
+        - ./runtest branch-history
+
     # ========================
     #  Optional Checks/Tests
     # ========================
