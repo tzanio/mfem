@@ -62,6 +62,7 @@ while read -r rev; do
     echo "Processing commit ${rev}"
     git checkout -q "${rev}"
     shortrev="$(git log -1 --format=%h)"
+    echo "Processing commit ${shortrev}"
 
     # Compute the total number of changes (line insertions + line deletions) in
     # all the files in the commit.
